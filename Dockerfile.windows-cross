@@ -1,0 +1,35 @@
+# Use Linux .NET SDK to cross-compile for Windows
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+
+WORKDIR /src
+
+# Copy solution and project files
+COPY ["Unifi.NET.sln", "./"]
+COPY ["Directory.Build.props", "./"]
+COPY ["Directory.Packages.props", "./"]
+COPY ["global.json", "./"]
+COPY [".editorconfig", "./"]
+COPY ["Unifi.NET.Common/Unifi.NET.Common.csproj", "Unifi.NET.Common/"]
+COPY ["Unifi.NET.Access/Unifi.NET.Access.csproj", "Unifi.NET.Access/"]
+COPY ["Unifi.NET.Samples/Unifi.NET.Samples.csproj", "Unifi.NET.Samples/"]
+
+# Restore dependencies for Windows target
+RUN dotnet restore "Unifi.NET.Samples/Unifi.NET.Samples.csproj" -r win-x64
+
+# Copy source code
+COPY ["Unifi.NET.Common/", "Unifi.NET.Common/"]
+COPY ["Unifi.NET.Access/", "Unifi.NET.Access/"]
+COPY ["Unifi.NET.Samples/", "Unifi.NET.Samples/"]
+
+# Build and publish for Windows (without Native AOT since cross-OS AOT isn't supported)
+RUN dotnet publish "Unifi.NET.Samples/Unifi.NET.Samples.csproj" \
+    -c Release \
+    -r win-x64 \
+    -o /app/publish \
+    -p:PublishAot=false \
+    -p:PublishSingleFile=true \
+    --self-contained true
+
+# Export stage - copy files to host
+FROM scratch AS export
+COPY --from=build /app/publish /
