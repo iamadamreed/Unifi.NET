@@ -2378,22 +2378,24 @@ async Task ReplaceLostNfcCard(IUnifiAccessClient client, ILogger logger)
     await client.Users.AssignNfcCardToUserAsync(user.Id, assignRequest);
     Console.WriteLine($"✓ New card assigned to {user.FirstName} {user.LastName}");
 
-    // Step 4: Delete old cards from system entirely
+    // Step 4: Unassign then delete old cards from system
     if (oldCards.Any())
     {
-        Console.WriteLine($"\nDeleting {oldCards.Count} old card(s) from system...");
+        Console.WriteLine($"\nRemoving {oldCards.Count} old card(s)...");
         foreach (var oldCard in oldCards)
         {
             try
             {
-                // Delete card from system entirely (not just unassign)
+                // First unassign from user
+                await client.Users.UnassignNfcCardFromUserAsync(user.Id, oldCard.Id);
+                // Then delete from system
                 await client.Credentials.DeleteNfcCardAsync(oldCard.Token);
                 Console.WriteLine($"  ✓ Deleted: {oldCard.Id}");
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to delete card {CardId}", oldCard.Id);
-                Console.WriteLine($"  ✗ Failed to delete: {oldCard.Id} - {ex.Message}");
+                Console.WriteLine($"  ✗ Failed: {oldCard.Id} - {ex.Message}");
             }
         }
     }
