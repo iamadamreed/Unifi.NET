@@ -88,7 +88,8 @@ try
         Console.WriteLine("16. List devices");
         Console.WriteLine("17. Export Last Activity Report (CSV)");
         Console.WriteLine("18. Batch enroll NFC cards (quick-scan mode)");
-        Console.WriteLine("19. Exit");
+        Console.WriteLine("19. Replace lost/stolen NFC card");
+        Console.WriteLine("20. Exit (Ctrl+C)");
         Console.Write("\nSelect option: ");
         
         var choice = Console.ReadLine()?.Trim();
@@ -150,6 +151,9 @@ try
                 await BatchEnrollNfcCards(client, logger);
                 break;
             case "19":
+                await ReplaceLostNfcCard(client, logger);
+                break;
+            case "20":
                 exit = true;
                 break;
             default:
@@ -2179,6 +2183,227 @@ async Task BatchEnrollNfcCards(IUnifiAccessClient client, ILogger logger)
         logger.LogError(ex, "Batch enrollment failed");
         Console.WriteLine($"\n❌ Error: {ex.Message}");
     }
+}
+
+async Task ReplaceLostNfcCard(IUnifiAccessClient client, ILogger logger)
+{
+    Console.WriteLine("\n╔═══════════════════════════════════╗");
+    Console.WriteLine("║   Replace Lost/Stolen NFC Card    ║");
+    Console.WriteLine("╚═══════════════════════════════════╝");
+
+    // Step 1: Find the user
+    Console.Write("\nEnter employee name to search: ");
+    var searchQuery = Console.ReadLine()?.Trim();
+
+    if (string.IsNullOrWhiteSpace(searchQuery))
+    {
+        Console.WriteLine("Search query is required.");
+        return;
+    }
+
+    logger.LogInformation("Searching for users matching: {Query}", searchQuery);
+    var searchResults = await client.Users.SearchUsersAsync(searchQuery);
+    var users = searchResults.ToList();
+
+    if (!users.Any())
+    {
+        Console.WriteLine($"No users found matching '{searchQuery}'");
+        return;
+    }
+
+    Console.WriteLine($"\nFound {users.Count} user(s):");
+    for (int i = 0; i < users.Count; i++)
+    {
+        var u = users[i];
+        Console.WriteLine($"  [{i + 1}] {u.FirstName} {u.LastName} ({u.EmployeeNumber ?? "No ID"})");
+    }
+
+    Console.Write("\nSelect user number: ");
+    if (!int.TryParse(Console.ReadLine(), out int userIndex) || userIndex < 1 || userIndex > users.Count)
+    {
+        Console.WriteLine("Invalid selection.");
+        return;
+    }
+
+    var selectedUser = users[userIndex - 1];
+
+    // Fetch full user details to get current cards
+    var user = await client.Users.GetUserAsync(selectedUser.Id);
+    var oldCards = user.NfcCards?.ToList() ?? new List<NfcCardInfo>();
+
+    Console.WriteLine($"\n══════════════════════════════════════");
+    Console.WriteLine($"User: {user.FirstName} {user.LastName}");
+    Console.WriteLine($"Employee #: {user.EmployeeNumber ?? "N/A"}");
+    Console.WriteLine($"Current NFC Cards: {oldCards.Count}");
+
+    if (oldCards.Any())
+    {
+        foreach (var card in oldCards)
+        {
+            Console.WriteLine($"  • {card.Id} ({card.Type ?? "Unknown"})");
+        }
+    }
+    Console.WriteLine($"══════════════════════════════════════");
+
+    // Step 2: Select reader and scan new card
+    var devicesTask = client.Devices.GetDevicesAsync();
+    var doorsTask = client.Doors.GetDoorsAsync();
+    await Task.WhenAll(devicesTask, doorsTask);
+
+    var devices = await devicesTask;
+    var doors = await doorsTask;
+    var doorLookup = doors.ToDictionary(d => d.Id, d => d);
+
+    var nfcCapableTypes = new[] { "UA-G3", "UA-G2-PRO", "UA-G2-MINI", "UDA-LITE" };
+    var readers = devices.Where(d => nfcCapableTypes.Contains(d.Type)).ToList();
+
+    if (!readers.Any())
+    {
+        Console.WriteLine("\nError: No NFC-capable readers found.");
+        return;
+    }
+
+    Console.WriteLine("\nSelect NFC Reader:");
+    var indexedReaders = new List<DeviceResponse>();
+    int readerIndex = 1;
+
+    foreach (var reader in readers.OrderBy(r => doorLookup.ContainsKey(r.LocationId) ? doorLookup[r.LocationId].FullName : ""))
+    {
+        var displayName = !string.IsNullOrWhiteSpace(reader.Alias) ? reader.Alias : reader.Name;
+        var doorName = doorLookup.ContainsKey(reader.LocationId) ? doorLookup[reader.LocationId].Name : "Unknown";
+        Console.WriteLine($"  [{readerIndex}] {displayName} @ {doorName}");
+        indexedReaders.Add(reader);
+        readerIndex++;
+    }
+
+    Console.Write("\nSelect reader: ");
+    if (!int.TryParse(Console.ReadLine(), out int deviceIndex) || deviceIndex < 1 || deviceIndex > indexedReaders.Count)
+    {
+        Console.WriteLine("Invalid selection.");
+        return;
+    }
+
+    var selectedDevice = indexedReaders[deviceIndex - 1];
+
+    // Create enrollment session
+    logger.LogInformation("Creating NFC enrollment session on device {DeviceId}", selectedDevice.Id);
+    var sessionRequest = new CreateNfcEnrollmentSessionRequest
+    {
+        DeviceId = selectedDevice.Id,
+        ResetUaCard = true
+    };
+
+    var session = await client.Credentials.CreateNfcEnrollmentSessionAsync(sessionRequest);
+    Console.WriteLine($"\n✓ Session created. Tap NEW card on reader...");
+    Console.WriteLine("  (Hold for 5 seconds | Press 'C' to cancel)\n");
+
+    // Poll for card
+    var startTime = DateTime.UtcNow;
+    var timeout = TimeSpan.FromSeconds(60);
+    string? detectedCardId = null;
+
+    while (DateTime.UtcNow - startTime < timeout)
+    {
+        if (Console.KeyAvailable)
+        {
+            var key = Console.ReadKey(true);
+            if (key.KeyChar == 'c' || key.KeyChar == 'C')
+            {
+                Console.WriteLine("\n⚠️  Cancelled.");
+                await client.Credentials.CancelNfcEnrollmentSessionAsync(session.SessionId);
+                return;
+            }
+        }
+
+        await Task.Delay(2000);
+
+        try
+        {
+            var status = await client.Credentials.GetNfcEnrollmentStatusAsync(session.SessionId);
+
+            if (!string.IsNullOrEmpty(status.Token) && !string.IsNullOrEmpty(status.CardId))
+            {
+                detectedCardId = status.Token;
+                Console.WriteLine($"\n✓ Card detected: {status.CardId}");
+                break;
+            }
+            Console.Write(".");
+        }
+        catch (UnifiAccessException ex) when (ex.ErrorCode == "CODE_CREDS_NFC_READ_POLL_TOKEN_EMPTY")
+        {
+            Console.Write(".");
+        }
+        catch (UnifiAccessException ex) when (ex.ErrorCode == "CODE_CREDS_NFC_CARD_IS_PROVISION")
+        {
+            // Card already assigned - get token and force reassign
+            try
+            {
+                var status = await client.Credentials.GetNfcEnrollmentStatusAsync(session.SessionId);
+                if (!string.IsNullOrEmpty(status.Token))
+                {
+                    detectedCardId = status.Token;
+                    Console.WriteLine($"\n⚠️  Card already enrolled elsewhere - will reassign");
+                    break;
+                }
+            }
+            catch { }
+        }
+        catch (UnifiAccessException ex) when (ex.ErrorCode == "CODE_CREDS_NFC_CARD_PROVISION_FAILED")
+        {
+            Console.WriteLine("\n⚠️  Hold card longer!");
+            Console.Write("  ");
+        }
+        catch (UnifiAccessException ex)
+        {
+            logger.LogWarning("Poll error: {Code}", ex.ErrorCode);
+            Console.Write("!");
+        }
+    }
+
+    if (string.IsNullOrEmpty(detectedCardId))
+    {
+        Console.WriteLine("\n✗ Timeout - no card detected.");
+        await client.Credentials.CancelNfcEnrollmentSessionAsync(session.SessionId);
+        return;
+    }
+
+    // Step 3: Assign new card to user (force)
+    logger.LogInformation("Assigning new card to user {UserId}", user.Id);
+    var assignRequest = new AssignNfcCardRequest
+    {
+        Token = detectedCardId,
+        ForceAdd = true
+    };
+
+    await client.Users.AssignNfcCardToUserAsync(user.Id, assignRequest);
+    Console.WriteLine($"✓ New card assigned to {user.FirstName} {user.LastName}");
+
+    // Step 4: Delete old cards from system entirely
+    if (oldCards.Any())
+    {
+        Console.WriteLine($"\nDeleting {oldCards.Count} old card(s) from system...");
+        foreach (var oldCard in oldCards)
+        {
+            try
+            {
+                // Delete card from system entirely (not just unassign)
+                await client.Credentials.DeleteNfcCardAsync(oldCard.Token);
+                Console.WriteLine($"  ✓ Deleted: {oldCard.Id}");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to delete card {CardId}", oldCard.Id);
+                Console.WriteLine($"  ✗ Failed to delete: {oldCard.Id} - {ex.Message}");
+            }
+        }
+    }
+
+    Console.WriteLine("\n╔═══════════════════════════════════╗");
+    Console.WriteLine("║         Card Replaced!            ║");
+    Console.WriteLine("╚═══════════════════════════════════╝");
+    Console.WriteLine($"  User: {user.FirstName} {user.LastName}");
+    Console.WriteLine($"  New Card: {detectedCardId.Substring(0, Math.Min(12, detectedCardId.Length))}...");
+    Console.WriteLine($"  Old Cards Deleted: {oldCards.Count}");
 }
 
 static string GenerateSequentialId(string prefix, int number, int paddingWidth)
