@@ -2386,8 +2386,8 @@ async Task ReplaceLostNfcCard(IUnifiAccessClient client, ILogger logger)
         {
             try
             {
-                // First unassign from user
-                await client.Users.UnassignNfcCardFromUserAsync(user.Id, oldCard.Id);
+                // First unassign from user (API requires token, not display ID)
+                await client.Users.UnassignNfcCardFromUserAsync(user.Id, oldCard.Token);
                 // Then delete from system
                 await client.Credentials.DeleteNfcCardAsync(oldCard.Token);
                 Console.WriteLine($"  ✓ Deleted: {oldCard.Id}");
