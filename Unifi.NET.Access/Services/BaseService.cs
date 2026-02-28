@@ -96,7 +96,7 @@ public abstract class BaseService
     private async Task<T> ExecuteAsync<T>(RestRequest request, CancellationToken cancellationToken)
     {
         var response = await Client.ExecuteAsync(request, cancellationToken);
-        
+
         if (!response.IsSuccessful)
         {
             HandleErrorResponse(response);
@@ -107,23 +107,34 @@ public abstract class BaseService
             return default!;
         }
 
+        // Check for API-level errors BEFORE full deserialization
+        // (API returns HTTP 200 even for error codes, and data may be null/invalid for errors)
+        using (var doc = JsonDocument.Parse(response.Content))
+        {
+            if (doc.RootElement.TryGetProperty("code", out var codeElement))
+            {
+                var code = codeElement.GetString();
+                if (code != null && code != "SUCCESS")
+                {
+                    var message = doc.RootElement.TryGetProperty("msg", out var msgElement)
+                        ? msgElement.GetString() ?? "Unknown error"
+                        : "Unknown error";
+                    throw UnifiErrorCodeMapper.MapError(code, message, (int?)response.StatusCode);
+                }
+            }
+        }
+
         // Get the JsonTypeInfo for the specific type from our options
         var jsonTypeInfo = (JsonTypeInfo<UnifiApiResponse<T>>)_jsonOptions.GetTypeInfo(typeof(UnifiApiResponse<T>));
-        
+
         // Deserialize using the type info for Native AOT compatibility
         var apiResponse = JsonSerializer.Deserialize(response.Content, jsonTypeInfo);
-        
+
         if (apiResponse == null)
         {
             throw new UnifiAccessException("Response data is null", "NULL_RESPONSE");
         }
 
-        // Check for API-level errors
-        if (apiResponse.Code != "SUCCESS")
-        {
-            throw UnifiErrorCodeMapper.MapError(apiResponse.Code, apiResponse.Message, (int?)response.StatusCode);
-        }
-        
         // Handle null data for successful responses
         if (apiResponse.Data == null)
         {

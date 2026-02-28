@@ -247,7 +247,7 @@ public sealed class UserService : BaseService, IUserService
         ArgumentException.ThrowIfNullOrEmpty(userId);
         ArgumentException.ThrowIfNullOrEmpty(cardId);
         
-        await PutAsync<object>($"/api/v1/developer/users/{userId}/nfc_cards/delete", new { card_id = cardId }, cancellationToken);
+        await PutAsync<object>($"/api/v1/developer/users/{userId}/nfc_cards/delete", new { token = cardId }, cancellationToken);
     }
 
     /// <inheritdoc />
