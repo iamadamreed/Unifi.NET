@@ -15,19 +15,19 @@
     <OptimizationPreference>Speed</OptimizationPreference>
     
     <!-- Package Information -->
-    <Authors>Unifi.NET Contributors</Authors>
-    <Company>Unifi.NET</Company>
+    <Authors>Spire Recovery Solutions</Authors>
+    <Company>Spire Recovery Solutions</Company>
     <Product>Unifi.NET SDK</Product>
-    <Copyright>Copyright © 2024 Unifi.NET Contributors</Copyright>
+    <Copyright>Copyright © 2025 Spire Recovery Solutions</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/yourusername/Unifi.NET</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/yourusername/Unifi.NET</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/iamadamreed/Unifi.NET</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/iamadamreed/Unifi.NET</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>unifi;ubiquiti;sdk;api;access;network;protect</PackageTags>
-    
-    <!-- Versioning -->
+
+    <!-- Versioning: {VersionPrefix}.{run_number}{-alpha} at pack time -->
     <VersionPrefix>3.3.21</VersionPrefix>
-    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview</VersionSuffix>
+    <VersionSuffix Condition="'$(VersionSuffix)' == ''">local</VersionSuffix>
     
     <!-- Output Configuration -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

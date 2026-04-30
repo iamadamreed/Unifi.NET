@@ -1,0 +1,40 @@
+name: Publish NuGet Package
+
+on:
+  push:
+    branches:
+      - main
+      - alpha
+
+jobs:
+  publish:
+    runs-on: self-hosted
+    environment: production
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Set Branch-Specific Variables
+      run: |
+        if [[ "${{ github.ref }}" == "refs/heads/alpha" ]]; then
+          echo "version_postfix=-alpha" >> $GITHUB_ENV
+        else
+          echo "version_postfix=" >> $GITHUB_ENV
+        fi
+
+    - name: Calculate Version
+      run: |
+        VERSION_PREFIX=$(grep -oP '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)
+        VERSION="${VERSION_PREFIX}.${{ github.run_number }}${{ env.version_postfix }}"
+        echo "version=$VERSION" >> $GITHUB_ENV
+        echo "Package version: $VERSION"
+
+    - name: Publish NuGet Package
+      uses: Spire-Recovery-Solutions/custom-github-actions/publish-library-sdks@main
+      with:
+        dotnet-version: '9.x'
+        actions-token: ${{ secrets.ACTIONS_TOKEN }}
+        package-version: ${{ env.version }}
