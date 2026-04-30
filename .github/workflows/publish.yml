@@ -31,9 +31,34 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_ENV
         echo "Package version: $VERSION"
 
-    - name: Publish NuGet Package
-      uses: Spire-Recovery-Solutions/custom-github-actions/publish-library-sdks@main
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '9.x'
-        actions-token: ${{ secrets.ACTIONS_TOKEN }}
-        package-version: ${{ env.version }}
+
+    - name: Add GitHub NuGet Source
+      run: |
+        dotnet nuget add source \
+          --username USERNAME \
+          --password "${{ secrets.ACTIONS_TOKEN }}" \
+          --store-password-in-clear-text \
+          --name github \
+          "https://nuget.pkg.github.com/Spire-Recovery-Solutions/index.json"
+
+    - name: Restore and Build
+      run: dotnet build --configuration Release
+
+    - name: Pack
+      run: |
+        dotnet pack Unifi.NET.Access/Unifi.NET.Access.csproj \
+          --configuration Release \
+          --no-build \
+          --output ./packages \
+          /p:PackageVersion=${{ env.version }}
+
+    - name: Push to GitHub Packages
+      run: |
+        dotnet nuget push ./packages/*.nupkg \
+          --api-key "${{ secrets.ACTIONS_TOKEN }}" \
+          --source github \
+          --skip-duplicate
