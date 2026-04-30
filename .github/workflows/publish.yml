@@ -6,15 +6,24 @@ on:
       - main
       - alpha
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code
+    - name: Checkout
       uses: actions/checkout@v5
       with:
         fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '9.x'
 
     - name: Set Branch-Specific Variables
       run: |
@@ -31,22 +40,11 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_ENV
         echo "Package version: $VERSION"
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v5
-      with:
-        dotnet-version: '9.x'
+    - name: Restore
+      run: dotnet restore
 
-    - name: Add GitHub NuGet Source
-      run: |
-        dotnet nuget add source \
-          --username USERNAME \
-          --password "${{ secrets.ACTIONS_TOKEN }}" \
-          --store-password-in-clear-text \
-          --name github \
-          "https://nuget.pkg.github.com/Spire-Recovery-Solutions/index.json"
-
-    - name: Restore and Build
-      run: dotnet build --configuration Release
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
 
     - name: Pack
       run: |
@@ -59,6 +57,6 @@ jobs:
     - name: Push to GitHub Packages
       run: |
         dotnet nuget push ./packages/*.nupkg \
-          --api-key "${{ secrets.ACTIONS_TOKEN }}" \
-          --source github \
+          --api-key "${{ secrets.GITHUB_TOKEN }}" \
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
           --skip-duplicate
