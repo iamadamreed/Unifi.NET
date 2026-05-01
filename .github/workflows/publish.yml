@@ -48,6 +48,11 @@ jobs:
 
     - name: Pack
       run: |
+        dotnet pack Unifi.NET.Common/Unifi.NET.Common.csproj \
+          --configuration Release \
+          --no-build \
+          --output ./packages \
+          /p:PackageVersion=${{ env.version }}
         dotnet pack Unifi.NET.Access/Unifi.NET.Access.csproj \
           --configuration Release \
           --no-build \
